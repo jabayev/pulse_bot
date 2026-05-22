@@ -1,4 +1,4 @@
-# bahandi_pulse_bot
+# pulse_bot
 
 Telegram-бот мониторинга HTTP-сервисов. Периодически пингует заданные URL и уведомляет в чат при падении или восстановлении сервиса.
 
@@ -17,8 +17,8 @@ Telegram-бот мониторинга HTTP-сервисов. Периодиче
 
 1. Открой Telegram, найди **@BotFather**
 2. Напиши `/newbot`
-3. Придумай имя бота (например `Bahandi Pulse`)
-4. Придумай username — должен заканчиваться на `bot` (например `bahandi_pulse_bot`)
+3. Придумай имя бота (например `My Pulse Bot`)
+4. Придумай username — должен заканчиваться на `bot` (например `my_pulse_bot`)
 5. BotFather пришлёт токен вида:
    ```
    123456789:AABBCCDDEEFFaabbccddeeff
