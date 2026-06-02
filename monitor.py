@@ -37,7 +37,7 @@ async def _check_one(session: aiohttp.ClientSession, svc: dict) -> tuple[bool, O
     try:
         async with session.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True, ssl=False) as resp:
             elapsed = (time.monotonic() - start) * 1000
-            if 200 <= resp.status < 300:
+            if 200 <= resp.status < 300 or resp.status == 468:
                 return True, round(elapsed, 1), None
             return False, round(elapsed, 1), f"HTTP {resp.status}"
     except asyncio.TimeoutError:
