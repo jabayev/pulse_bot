@@ -24,18 +24,23 @@ def _now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
-async def _send(text: str) -> None:
+async def _send(text: str) -> bool:
     if _bot is None:
         logger.error("Bot not initialized — call init_bot() before sending notifications")
-        return
+        return False
     try:
         await _bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
             text=text,
             parse_mode=ParseMode.HTML,
         )
+        return True
     except TelegramError as e:
         logger.error("Failed to send Telegram notification: %s", e)
+        return False
+    except Exception:
+        logger.exception("Unexpected error while sending Telegram notification")
+        return False
 
 
 async def notify_down(service_name: str, url: str, error: str) -> None:

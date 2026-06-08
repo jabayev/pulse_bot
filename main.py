@@ -30,36 +30,46 @@ logger = logging.getLogger(__name__)
 # --- Job -------------------------------------------------------------------
 
 async def _monitoring_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    events = await check_services(SERVICES)
-    for ev in events:
-        svc = ev["service"]
-        if ev["event"] == "down":
-            await notify_down(svc.name, svc.url, svc.last_error or "unknown")
-        else:
-            await notify_up(svc.name, svc.url, svc.response_time_ms)
+    try:
+        events = await check_services(SERVICES)
+        for ev in events:
+            svc = ev["service"]
+            if ev["event"] == "down":
+                await notify_down(svc.name, svc.url, svc.last_error or "unknown")
+            else:
+                await notify_up(svc.name, svc.url, svc.response_time_ms)
 
-    if not CAMERA_MONITOR_ENABLED:
-        return
+        if not CAMERA_MONITOR_ENABLED:
+            return
 
-    camera_events = await check_random_camera(
-        CAMERA_RTSP_URL_TEMPLATE,
-        CAMERA_CHANNELS,
-        CAMERA_CHECK_TIMEOUT,
-    )
-    for ev in camera_events:
-        camera = ev["camera"]
-        if ev["event"] == "down":
-            await notify_camera_down(
-                camera.channel,
-                camera.display_url,
-                camera.last_error or "unknown",
-            )
-        else:
-            await notify_camera_up(
-                camera.channel,
-                camera.display_url,
-                camera.response_time_ms,
-            )
+        camera_events = await check_random_camera(
+            CAMERA_RTSP_URL_TEMPLATE,
+            CAMERA_CHANNELS,
+            CAMERA_CHECK_TIMEOUT,
+        )
+        for ev in camera_events:
+            camera = ev["camera"]
+            if ev["event"] == "down":
+                await notify_camera_down(
+                    camera.channel,
+                    camera.display_url,
+                    camera.last_error or "unknown",
+                )
+            else:
+                await notify_camera_up(
+                    camera.channel,
+                    camera.display_url,
+                    camera.response_time_ms,
+                )
+    except Exception:
+        logger.exception("Monitoring job failed, next cycle will continue")
+
+
+async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if context.error:
+        logger.error("Telegram handler failed: %s", context.error, exc_info=context.error)
+    else:
+        logger.error("Telegram handler failed without exception details")
 
 
 # --- Commands --------------------------------------------------------------
@@ -139,6 +149,7 @@ def main() -> None:
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("status_camera", cmd_status_camera))
     app.add_handler(CommandHandler("list", cmd_list))
+    app.add_error_handler(_error_handler)
 
     app.job_queue.run_repeating(
         _monitoring_job,
