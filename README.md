@@ -6,7 +6,8 @@ Telegram-бот мониторинга HTTP-сервисов. Периодиче
 
 - Параллельная проверка любого количества HTTP-сервисов
 - Уведомления только при изменении статуса (не спамит)
-- Команды `/status` и `/list` прямо в Telegram
+- Команды `/status`, `/status_camera` и `/list` прямо в Telegram
+- Проверка RTSP-камер через TCP/RTSP `OPTIONS`
 - Запуск в Docker одной командой
 
 ---
@@ -56,6 +57,12 @@ TELEGRAM_BOT_TOKEN=123456789:AABBCCDDEEFFaabbccddeeff
 TELEGRAM_CHAT_ID=-1001234567890
 CHECK_INTERVAL=60
 SERVICES=[{"name":"My API","url":"https://api.example.com/health"},{"name":"Frontend","url":"https://example.com"}]
+CAMERA_MONITOR_ENABLED=true
+CAMERA_RTSP_URL_TEMPLATE=rtsp://username:password@example-camera-host:554/Streaming/Channels/{channel}
+CAMERA_CHANNEL_START=101
+CAMERA_CHANNEL_END=1501
+CAMERA_CHANNEL_STEP=100
+CAMERA_CHECK_TIMEOUT=5
 ```
 
 | Переменная | Описание |
@@ -64,6 +71,12 @@ SERVICES=[{"name":"My API","url":"https://api.example.com/health"},{"name":"Fron
 | `TELEGRAM_CHAT_ID` | ID чата куда слать уведомления |
 | `CHECK_INTERVAL` | Интервал проверки в секундах (по умолчанию 60) |
 | `SERVICES` | JSON-массив сервисов, каждый с полями `name` и `url` |
+| `CAMERA_MONITOR_ENABLED` | Включить проверку RTSP-камер (по умолчанию включается, если задан `CAMERA_RTSP_URL_TEMPLATE`) |
+| `CAMERA_RTSP_URL_TEMPLATE` | Шаблон RTSP URL, где `{channel}` заменяется на номер канала |
+| `CAMERA_CHANNEL_START` | Первый канал для проверки (по умолчанию `101`) |
+| `CAMERA_CHANNEL_END` | Последний канал для проверки (по умолчанию `1501`) |
+| `CAMERA_CHANNEL_STEP` | Шаг каналов (по умолчанию `100`) |
+| `CAMERA_CHECK_TIMEOUT` | Таймаут ответа RTSP в секундах (по умолчанию `5`) |
 
 ### 4. Запустить через Docker
 
@@ -88,6 +101,7 @@ docker compose down
 | Команда | Описание |
 |---|---|
 | `/status` | Текущий статус всех сервисов с временем последней проверки |
+| `/status_camera` | Ручная проверка всех RTSP-камер |
 | `/list` | Список отслеживаемых сервисов и интервал проверки |
 
 ---
@@ -98,6 +112,7 @@ docker compose down
 ├── main.py          # Точка входа, команды бота, планировщик задач
 ├── config.py        # Загрузка и валидация переменных окружения
 ├── monitor.py       # Асинхронная проверка HTTP-сервисов
+├── camera_monitor.py # Асинхронная проверка RTSP-камер
 ├── notifier.py      # Отправка уведомлений в Telegram
 ├── requirements.txt
 ├── Dockerfile

@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from html import escape
 from typing import Optional
 
 from telegram import Bot
@@ -41,9 +42,9 @@ async def notify_down(service_name: str, url: str, error: str) -> None:
     text = (
         f"🔴 <b>Сервис недоступен</b>\n"
         f"\n"
-        f"<b>Сервис:</b> {service_name}\n"
-        f"<b>URL:</b> {url}\n"
-        f"<b>Ошибка:</b> {error}\n"
+        f"<b>Сервис:</b> {escape(service_name)}\n"
+        f"<b>URL:</b> {escape(url)}\n"
+        f"<b>Ошибка:</b> {escape(error)}\n"
         f"<b>Время:</b> {_now_utc()}"
     )
     logger.warning("DOWN: %s (%s) — %s", service_name, url, error)
@@ -55,10 +56,37 @@ async def notify_up(service_name: str, url: str, response_time_ms: Optional[floa
     text = (
         f"🟢 <b>Сервис восстановлен</b>\n"
         f"\n"
-        f"<b>Сервис:</b> {service_name}\n"
-        f"<b>URL:</b> {url}\n"
+        f"<b>Сервис:</b> {escape(service_name)}\n"
+        f"<b>URL:</b> {escape(url)}\n"
         f"<b>Время ответа:</b> {rt}\n"
         f"<b>Восстановлен:</b> {_now_utc()}"
     )
     logger.info("UP: %s (%s) — %s", service_name, url, rt)
+    await _send(text)
+
+
+async def notify_camera_down(channel: int, url: str, error: str) -> None:
+    text = (
+        f"🔴 <b>RTSP камера недоступна</b>\n"
+        f"\n"
+        f"<b>Канал:</b> {channel}\n"
+        f"<b>URL:</b> {escape(url)}\n"
+        f"<b>Ошибка:</b> {escape(error)}\n"
+        f"<b>Время:</b> {_now_utc()}"
+    )
+    logger.warning("CAMERA DOWN: channel %s (%s) — %s", channel, url, error)
+    await _send(text)
+
+
+async def notify_camera_up(channel: int, url: str, response_time_ms: Optional[float]) -> None:
+    rt = f"{response_time_ms} ms" if response_time_ms is not None else "—"
+    text = (
+        f"🟢 <b>RTSP камера восстановлена</b>\n"
+        f"\n"
+        f"<b>Канал:</b> {channel}\n"
+        f"<b>URL:</b> {escape(url)}\n"
+        f"<b>Время ответа:</b> {rt}\n"
+        f"<b>Восстановлена:</b> {_now_utc()}"
+    )
+    logger.info("CAMERA UP: channel %s (%s) — %s", channel, url, rt)
     await _send(text)
