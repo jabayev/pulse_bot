@@ -70,28 +70,28 @@ async def notify_up(service_name: str, url: str, response_time_ms: Optional[floa
     await _send(text)
 
 
-async def notify_camera_down(channel: int, url: str, error: str) -> None:
+async def notify_camera_down(name: str, url: str, error: str) -> None:
     text = (
         f"🔴 <b>RTSP камера недоступна</b>\n"
         f"\n"
-        f"<b>Канал:</b> {channel}\n"
+        f"<b>Камера:</b> {escape(name)}\n"
         f"<b>URL:</b> {escape(url)}\n"
         f"<b>Ошибка:</b> {escape(error)}\n"
         f"<b>Время:</b> {_now_utc()}"
     )
-    logger.warning("CAMERA DOWN: channel %s (%s) — %s", channel, url, error)
+    logger.warning("CAMERA DOWN: %s (%s) — %s", name, url, error)
     await _send(text)
 
 
-async def notify_camera_up(channel: int, url: str, response_time_ms: Optional[float]) -> None:
+async def notify_camera_up(name: str, url: str, response_time_ms: Optional[float]) -> None:
     rt = f"{response_time_ms} ms" if response_time_ms is not None else "—"
     text = (
         f"🟢 <b>RTSP камера восстановлена</b>\n"
         f"\n"
-        f"<b>Канал:</b> {channel}\n"
+        f"<b>Камера:</b> {escape(name)}\n"
         f"<b>URL:</b> {escape(url)}\n"
         f"<b>Время ответа:</b> {rt}\n"
         f"<b>Восстановлена:</b> {_now_utc()}"
     )
-    logger.info("CAMERA UP: channel %s (%s) — %s", channel, url, rt)
+    logger.info("CAMERA UP: %s (%s) — %s", name, url, rt)
     await _send(text)

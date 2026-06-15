@@ -54,8 +54,7 @@ async def check_services(services: list[dict]) -> list[dict]:
 
     Returns a list of change events:
         {"service": ServiceStatus, "event": "down" | "up"}
-    Only emitted when status changes (up→down or down→up).
-    First check with unknown previous state always emits if service is down.
+    Only emitted after the first known state changes (up→down or down→up).
     """
     events: list[dict] = []
 
@@ -85,12 +84,10 @@ async def check_services(services: list[dict]) -> list[dict]:
                     url,
                     f" ({error})" if error else f" {response_time_ms}ms")
 
-        # Emit event only on status change (or first check when service is down)
+        # First observation only seeds state; notifications are for real transitions.
+        if prev_is_up is None:
+            continue
         if is_up != prev_is_up:
-            if not is_up:
-                events.append({"service": state, "event": "down"})
-            elif prev_is_up is not None:
-                # Only notify recovery if we previously knew it was down
-                events.append({"service": state, "event": "up"})
+            events.append({"service": state, "event": "up" if is_up else "down"})
 
     return events

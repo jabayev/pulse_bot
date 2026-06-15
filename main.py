@@ -7,10 +7,9 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 from camera_monitor import check_all_cameras, check_random_camera
 from config import (
-    CAMERA_CHANNELS,
+    CAMERAS,
     CAMERA_CHECK_TIMEOUT,
     CAMERA_MONITOR_ENABLED,
-    CAMERA_RTSP_URL_TEMPLATE,
     CHECK_INTERVAL,
     SERVICES,
     TELEGRAM_BOT_TOKEN,
@@ -43,21 +42,20 @@ async def _monitoring_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             return
 
         camera_events = await check_random_camera(
-            CAMERA_RTSP_URL_TEMPLATE,
-            CAMERA_CHANNELS,
+            CAMERAS,
             CAMERA_CHECK_TIMEOUT,
         )
         for ev in camera_events:
             camera = ev["camera"]
             if ev["event"] == "down":
                 await notify_camera_down(
-                    camera.channel,
+                    camera.name,
                     camera.display_url,
                     camera.last_error or "unknown",
                 )
             else:
                 await notify_camera_up(
-                    camera.channel,
+                    camera.name,
                     camera.display_url,
                     camera.response_time_ms,
                 )
@@ -100,8 +98,7 @@ async def cmd_status_camera(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     await update.message.reply_text("Проверяю RTSP-камеры...")
     states = await check_all_cameras(
-        CAMERA_RTSP_URL_TEMPLATE,
-        CAMERA_CHANNELS,
+        CAMERAS,
         CAMERA_CHECK_TIMEOUT,
     )
 
@@ -111,7 +108,7 @@ async def cmd_status_camera(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         rt = f" · {state.response_time_ms} ms" if state.response_time_ms else ""
         err = f"\n    ⚠️ {escape(state.last_error)}" if state.last_error else ""
         lines.append(
-            f"{icon} <b>Канал {state.channel}</b>{rt}\n"
+            f"{icon} <b>{escape(state.name)}</b>{rt}\n"
             f"    {escape(state.display_url)}\n"
             f"    🕐 {state.last_checked or '—'}{err}"
         )
@@ -126,10 +123,10 @@ async def cmd_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     lines.append(f"\n⏱ Интервал проверки: <b>{CHECK_INTERVAL} сек</b>")
     if CAMERA_MONITOR_ENABLED:
-        camera_channels = ", ".join(str(channel) for channel in CAMERA_CHANNELS)
+        camera_lines = "\n".join(f"   • {escape(cam['name'])}" for cam in CAMERAS)
         lines.append(
-            f"\n📷 RTSP-камеры: <b>{len(CAMERA_CHANNELS)}</b>\n"
-            f"   Каналы: {camera_channels}\n"
+            f"\n📷 RTSP-камеры: <b>{len(CAMERAS)}</b>\n"
+            f"{camera_lines}\n"
             f"   Таймаут: <b>{CAMERA_CHECK_TIMEOUT:g} сек</b>"
         )
     await update.message.reply_text("\n\n".join(lines), parse_mode=ParseMode.HTML)
@@ -158,9 +155,9 @@ def main() -> None:
     )
 
     logger.info(
-        "pulse-bot started — %d service(s), %d camera channel(s), interval=%ds",
+        "pulse-bot started — %d service(s), %d camera(s), interval=%ds",
         len(SERVICES),
-        len(CAMERA_CHANNELS) if CAMERA_MONITOR_ENABLED else 0,
+        len(CAMERAS) if CAMERA_MONITOR_ENABLED else 0,
         CHECK_INTERVAL,
     )
     app.run_polling(drop_pending_updates=True)

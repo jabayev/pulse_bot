@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CameraStatus:
-    channel: int
+    name: str
     url: str
     display_url: str
     is_up: Optional[bool] = None
@@ -21,16 +21,12 @@ class CameraStatus:
     response_time_ms: Optional[float] = None
 
 
-# channel -> CameraStatus; persists across check cycles
-camera_states: dict[int, CameraStatus] = {}
+# camera name -> CameraStatus; persists across check cycles
+camera_states: dict[str, CameraStatus] = {}
 
 
 def _now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-
-
-def build_camera_url(template: str, channel: int) -> str:
-    return template.format(channel=channel)
 
 
 def redact_url(url: str) -> str:
@@ -103,12 +99,11 @@ async def _check_one(url: str, timeout: float) -> tuple[bool, Optional[float], O
                 pass
 
 
-async def check_camera_channel(template: str, channel: int, timeout: float) -> CameraStatus:
-    url = build_camera_url(template, channel)
+async def check_camera(name: str, url: str, timeout: float) -> CameraStatus:
     is_up, response_time_ms, error = await _check_one(url, timeout)
 
     state = CameraStatus(
-        channel=channel,
+        name=name,
         url=url,
         display_url=redact_url(url),
         is_up=is_up,
@@ -116,43 +111,41 @@ async def check_camera_channel(template: str, channel: int, timeout: float) -> C
         last_error=error,
         response_time_ms=response_time_ms,
     )
-    camera_states[channel] = state
+    camera_states[name] = state
 
     status_label = "UP" if is_up else "DOWN"
     logger.info(
-        "[%s] camera channel %s — %s%s",
+        "[%s] camera %s — %s%s",
         status_label,
-        channel,
+        name,
         state.display_url,
         f" ({error})" if error else f" {response_time_ms}ms",
     )
     return state
 
 
-async def check_random_camera(template: str, channels: list[int], timeout: float) -> list[dict]:
+async def check_random_camera(cameras: list[dict], timeout: float) -> list[dict]:
     """
-    Check one random camera channel.
+    Check one random camera (one RTSP address).
 
     Returns a list of change events:
         {"camera": CameraStatus, "event": "down" | "up"}
     """
-    if not channels:
+    if not cameras:
         return []
 
-    channel = random.choice(channels)
-    previous = camera_states.get(channel)
+    cam = random.choice(cameras)
+    previous = camera_states.get(cam["name"])
     prev_is_up = previous.is_up if previous else None
-    state = await check_camera_channel(template, channel, timeout)
+    state = await check_camera(cam["name"], cam["url"], timeout)
 
-    if state.is_up == prev_is_up:
+    if prev_is_up is None or state.is_up == prev_is_up:
         return []
     if not state.is_up:
         return [{"camera": state, "event": "down"}]
-    if prev_is_up is not None:
-        return [{"camera": state, "event": "up"}]
-    return []
+    return [{"camera": state, "event": "up"}]
 
 
-async def check_all_cameras(template: str, channels: list[int], timeout: float) -> list[CameraStatus]:
-    tasks = [check_camera_channel(template, channel, timeout) for channel in channels]
+async def check_all_cameras(cameras: list[dict], timeout: float) -> list[CameraStatus]:
+    tasks = [check_camera(cam["name"], cam["url"], timeout) for cam in cameras]
     return await asyncio.gather(*tasks)

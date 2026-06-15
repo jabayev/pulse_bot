@@ -30,6 +30,26 @@ def _parse_bool(raw: str) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def _parse_cameras(raw: str) -> list[dict]:
+    try:
+        cameras = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"CAMERAS must be valid JSON: {e}") from e
+
+    normalized: list[dict] = []
+    for i, cam in enumerate(cameras, 1):
+        url = cam.get("url")
+        if not url:
+            raise ValueError(f"Camera #{i}: 'url' is required: {cam}")
+        normalized.append(
+            {
+                "name": cam.get("name", f"Камера {i}"),
+                "url": url,
+            }
+        )
+    return normalized
+
+
 TELEGRAM_BOT_TOKEN: str = _require("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID: str = _require("TELEGRAM_CHAT_ID")
 
@@ -37,16 +57,14 @@ SERVICES: list[dict] = _parse_services(_require("SERVICES"))
 
 CHECK_INTERVAL: int = int(os.getenv("CHECK_INTERVAL", "60"))
 
-CAMERA_RTSP_URL_TEMPLATE: str = os.getenv("CAMERA_RTSP_URL_TEMPLATE", "")
-CAMERA_MONITOR_ENABLED: bool = _parse_bool(
-    os.getenv("CAMERA_MONITOR_ENABLED", "true" if CAMERA_RTSP_URL_TEMPLATE else "false")
-)
-if CAMERA_MONITOR_ENABLED and not CAMERA_RTSP_URL_TEMPLATE:
-    raise ValueError("CAMERA_RTSP_URL_TEMPLATE is required when CAMERA_MONITOR_ENABLED=true")
-CAMERA_CHANNEL_START: int = int(os.getenv("CAMERA_CHANNEL_START", "101"))
-CAMERA_CHANNEL_END: int = int(os.getenv("CAMERA_CHANNEL_END", "1501"))
-CAMERA_CHANNEL_STEP: int = int(os.getenv("CAMERA_CHANNEL_STEP", "100"))
 CAMERA_CHECK_TIMEOUT: float = float(os.getenv("CAMERA_CHECK_TIMEOUT", "5"))
-CAMERA_CHANNELS: list[int] = list(
-    range(CAMERA_CHANNEL_START, CAMERA_CHANNEL_END + 1, CAMERA_CHANNEL_STEP)
+
+# Each camera is one RTSP address checked as-is (one camera per address).
+_cameras_raw = os.getenv("CAMERAS", "").strip()
+CAMERAS: list[dict] = _parse_cameras(_cameras_raw) if _cameras_raw else []
+
+CAMERA_MONITOR_ENABLED: bool = _parse_bool(
+    os.getenv("CAMERA_MONITOR_ENABLED", "true" if CAMERAS else "false")
 )
+if CAMERA_MONITOR_ENABLED and not CAMERAS:
+    raise ValueError("CAMERAS is required when CAMERA_MONITOR_ENABLED=true")
