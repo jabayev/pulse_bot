@@ -15,10 +15,12 @@ services:
     # PROMETHEUS_URL=http://host.docker.internal:9090
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # Если Prometheus/Alertmanager живут в compose-сети mlbahandi-prod,
-    # подключите бот к ней и используйте http://prometheus:9090:
-    # networks:
-    #   - mlbahandi-prod_default
+    # Бот в одной сети с прод-стеком: PROMETHEUS_URL=http://prometheus:9090,
+    # ALERTMANAGER_URL=http://alertmanager:9093. Имя сети проверьте через
+    # `docker network ls` (обычно <project>_default).
+    networks:
+      - default
+      - mlbahandi-prod
     healthcheck:
       test:
         - CMD
@@ -35,6 +37,7 @@ services:
       retries: 3
       start_period: 15s
 
-# networks:
-#   mlbahandi-prod_default:
-#     external: true
+networks:
+  mlbahandi-prod:
+    external: true
+    name: mlbahandi-prod_default

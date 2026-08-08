@@ -238,7 +238,11 @@ DOCKER_SOCKET: str = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock").strip()
 DOCKER_ENABLED: bool = _parse_bool(
     os.getenv("DOCKER_ENABLED", "true" if os.path.exists(DOCKER_SOCKET) else "false")
 )
-COMPOSE_PROJECT: str = os.getenv("COMPOSE_PROJECT_NAME", "mlbahandi-prod").strip()
+# NB: deliberately not COMPOSE_PROJECT_NAME — that name is read by docker
+# compose itself and would hijack the bot's own compose project.
+COMPOSE_PROJECT: str = os.getenv(
+    "WATCH_COMPOSE_PROJECT", os.getenv("COMPOSE_PROJECT_NAME", "mlbahandi-prod")
+).strip()
 DOCKER_CRITICAL_CONTAINERS: list[str] = _parse_str_list(
     "DOCKER_CRITICAL_CONTAINERS",
     "ml-platform,analytics-worker,frame-ingest,redis,webapp-backend,webapp-db,go2rtc",
