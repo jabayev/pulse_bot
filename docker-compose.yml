@@ -1,13 +1,40 @@
 services:
-  pulse-bot:
+  tg-alert-bot:
     build: .
-    container_name: pulse-bot
+    container_name: tg-alert-bot
     restart: unless-stopped
     env_file:
       - .env
+    # Приёмник Alertmanager-вебхуков (WEBHOOK_PORT).
+    ports:
+      - "8080:8080"
+    volumes:
+      # Статус контейнеров prod-проекта (/containers, алерты о падениях).
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    # Позволяет обращаться к Prometheus на хосте:
+    # PROMETHEUS_URL=http://host.docker.internal:9090
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Если Prometheus/Alertmanager живут в compose-сети mlbahandi-prod,
+    # подключите бот к ней и используйте http://prometheus:9090:
+    # networks:
+    #   - mlbahandi-prod_default
     healthcheck:
-      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import os, sys, urllib.request
+          if os.getenv("WEBHOOK_ENABLED", "true").lower() in ("0", "false", "off", "no"):
+              sys.exit(0)
+          port = os.getenv("WEBHOOK_PORT", "8080")
+          urllib.request.urlopen(f"http://localhost:{port}/healthz", timeout=5)
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 15s
+
+# networks:
+#   mlbahandi-prod_default:
+#     external: true

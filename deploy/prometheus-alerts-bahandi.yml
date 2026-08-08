@@ -1,0 +1,215 @@
+# Alert rules для BahandiML prod (раздел 6.3 ТЗ).
+# Подключение: скопировать на хост мониторинга и добавить в prometheus.yml:
+#   rule_files:
+#     - /etc/prometheus/prometheus-alerts.yml        # существующие правила
+#     - /etc/prometheus/prometheus-alerts-bahandi.yml
+#
+# Имена job'ов (analytics-worker, nvidia-gpu, node) должны совпадать со
+# scrape-конфигом — при необходимости поправьте селекторы.
+
+groups:
+  - name: bahandi-exporters
+    rules:
+      - alert: AnalyticsWorkerDown
+        expr: up{job="analytics-worker"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "analytics-worker не отвечает на /metrics"
+          description: "up{job=analytics-worker} == 0 более 2 минут"
+
+      - alert: GpuExporterDown
+        expr: up{job="nvidia-gpu"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "dcgm-exporter недоступен — нет видимости GPU"
+          description: "up{job=nvidia-gpu} == 0 более 2 минут"
+
+      - alert: NodeExporterDown
+        expr: up{job="node"} == 0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "node-exporter недоступен"
+          description: "up{job=node} == 0 более 3 минут"
+
+  - name: bahandi-gpu
+    rules:
+      - alert: GpuTempHigh
+        expr: DCGM_FI_DEV_GPU_TEMP >= 80
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU {{ $labels.gpu }} перегревается"
+          description: "Температура {{ $value }}°C >= 80°C более 3 минут"
+
+      - alert: GpuTempCritical
+        expr: DCGM_FI_DEV_GPU_TEMP >= 88
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GPU {{ $labels.gpu }} критически горячий"
+          description: "Температура {{ $value }}°C >= 88°C"
+
+      - alert: GpuMissing
+        expr: count(DCGM_FI_DEV_GPU_TEMP) < 2
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Видно меньше 2 GPU — возможен отвал карты"
+          description: "count(DCGM_FI_DEV_GPU_TEMP) = {{ $value }}, ожидается 2"
+
+      - alert: GpuVramHigh
+        expr: >
+          DCGM_FI_DEV_FB_USED / (DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE) >= 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU {{ $labels.gpu }}: VRAM заполнена на 90%+"
+          description: "used/total >= 90% более 5 минут"
+
+      - alert: GpuVramGhost
+        expr: >
+          DCGM_FI_DEV_FB_USED / (DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE) >= 0.8
+          and DCGM_FI_DEV_GPU_UTIL < 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU {{ $labels.gpu }}: залипшая VRAM"
+          description: "VRAM >= 80% при util ~0 более 10 минут — возможно зомби-процесс держит память"
+
+      - alert: GpuPowerThrottle
+        expr: increase(DCGM_FI_DEV_POWER_VIOLATION[10m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU {{ $labels.gpu }}: power throttling"
+          description: "Длительные power violations за последние 10 минут"
+
+  - name: bahandi-host
+    rules:
+      - alert: DiskAlmostFull
+        expr: >
+          (node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"}
+           / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Диск почти заполнен"
+          description: "Свободно {{ $value | printf \"%.1f\" }}% < 15% более 5 минут"
+
+      - alert: MemPressure
+        expr: >
+          (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Мало свободной памяти"
+          description: "MemAvailable {{ $value | printf \"%.1f\" }}% < 10% более 5 минут"
+
+      - alert: CpuSaturation
+        expr: >
+          100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU перегружен"
+          description: "CPU > 90% более 15 минут"
+
+  - name: bahandi-ml-pipeline
+    rules:
+      - alert: NoFramesGlobal
+        expr: sum(rate(ml_frames_processed_total[5m])) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "0 кадров по всем камерам"
+          description: "Пайплайн не обрабатывает кадры более 5 минут"
+
+      - alert: FrameRateDrop
+        expr: >
+          sum(rate(ml_frames_processed_total[10m]))
+          < 0.3 * sum(rate(ml_frames_processed_total[6h] offset 10m))
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Поток кадров упал более чем на 70%"
+          description: "rate за 10m ниже 30% от baseline (6h)"
+
+      - alert: VlmInferenceSilent
+        expr: >
+          sum(increase(ml_model_inferences_total{model=~"vlm_.*"}[15m])) == 0
+          and sum(increase(ml_model_inferences_total{model!~"vlm_.*"}[15m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "VLM молчит при живом YOLO"
+          description: "Нет vlm_* инференсов 15 минут, при этом остальные модели работают"
+
+      - alert: VlmRejectSpike
+        expr: >
+          sum(increase(ml_model_inferences_total{model=~"vlm_.*",result="reject"}[30m]))
+          > 3 * sum(increase(ml_model_inferences_total{model=~"vlm_.*",result="reject"}[6h] offset 30m)) / 12
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Резкий рост vlm_reject"
+          description: "Доля reject за 30m в 3+ раза выше baseline (метка result — проверьте фактическое имя)"
+
+      - alert: FacePipelineDegraded
+        expr: >
+          sum(increase(ml_face_results_total{outcome="unknown"}[1h]))
+          > 2 * sum(increase(ml_face_results_total{outcome="confirmed"}[1h]))
+          and sum(increase(ml_face_results_total[1h])) > 20
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Деградация face-пайплайна"
+          description: "unknown в 2+ раза больше confirmed за последний час"
+
+  - name: bahandi-services
+    rules:
+      # Для Ollama/MinIO/Redis нужны probe'ы (blackbox-exporter или
+      # health-exporter) — селекторы поправьте под ваш scrape-конфиг.
+      - alert: OllamaUnhealthy
+        expr: up{job=~".*ollama.*"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ollama недоступен"
+          description: "Healthcheck Ollama не отвечает более 2 минут"
+
+      - alert: RedisDown
+        expr: up{job=~".*redis.*"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis недоступен"
+
+      - alert: MinioDown
+        expr: up{job=~".*minio.*"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MinIO недоступен"

@@ -1,0 +1,57 @@
+# Пример alertmanager.yml для доставки в Telegram-бот.
+# Основное: receiver tg-bot шлёт webhook на бот; critical идёт без длинной
+# группировки (цель < 1 мин), warning группируется.
+#
+# monitoring/webhook.url на prod-хосте должен указывать на:
+#   http://tg-alert-bot:8080/alertmanager   (если бот в той же docker-сети)
+#   http://<host>:8080/alertmanager         (если бот на другом хосте)
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: tg-bot
+  group_by: ["alertname"]
+  group_wait: 10s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # Critical: минимальная задержка, повтор каждые 2 часа пока горит.
+    - matchers:
+        - severity = critical
+      receiver: tg-bot
+      group_wait: 0s
+      group_interval: 1m
+      repeat_interval: 2h
+    # Warning: допускается группировка при шторме.
+    - matchers:
+        - severity = warning
+      receiver: tg-bot
+      group_wait: 30s
+      group_interval: 15m
+      repeat_interval: 12h
+
+inhibit_rules:
+  # Critical по тому же алерту/инстансу глушит warning.
+  - source_matchers:
+      - severity = critical
+    target_matchers:
+      - severity = warning
+    equal: ["alertname", "instance"]
+  # Отвал GPU-экспортёра глушит температурные алерты.
+  - source_matchers:
+      - alertname = GpuExporterDown
+    target_matchers:
+      - alertname =~ "GpuTemp.*|GpuVram.*|GpuMissing"
+
+receivers:
+  - name: tg-bot
+    webhook_configs:
+      - url: http://tg-alert-bot:8080/alertmanager
+        send_resolved: true
+        max_alerts: 20
+        http_config:
+          authorization:
+            type: Bearer
+            # Тот же секрет, что WEBHOOK_SECRET в .env бота.
+            credentials: CHANGE_ME_WEBHOOK_SECRET
