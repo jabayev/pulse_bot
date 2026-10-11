@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Thresholds:
-    cpu_percent: Optional[float] = 95.0
-    memory_percent: Optional[float] = 95.0
-    disk_percent: Optional[float] = 95.0
+    cpu_percent: Optional[float] = 92.0
+    memory_percent: Optional[float] = 92.0
+    disk_percent: Optional[float] = 92.0
     swap_percent: Optional[float] = None
     load_per_core: Optional[float] = 2.0
     trigger_count: int = 3

@@ -161,9 +161,9 @@ if METRICS_CONFIG.source not in {"auto", "prometheus", "psutil"}:
     raise ValueError("METRICS_SOURCE must be one of: auto, prometheus, psutil")
 
 ALERT_THRESHOLDS = Thresholds(
-    cpu_percent=_parse_threshold("ALERT_CPU_PERCENT", "95"),
-    memory_percent=_parse_threshold("ALERT_MEMORY_PERCENT", "95"),
-    disk_percent=_parse_threshold("ALERT_DISK_PERCENT", "95"),
+    cpu_percent=_parse_threshold("ALERT_CPU_PERCENT", "92"),
+    memory_percent=_parse_threshold("ALERT_MEMORY_PERCENT", "92"),
+    disk_percent=_parse_threshold("ALERT_DISK_PERCENT", "92"),
     swap_percent=_parse_threshold("ALERT_SWAP_PERCENT", "off"),
     load_per_core=_parse_threshold("ALERT_LOAD_PER_CORE", "2"),
     trigger_count=int(os.getenv("ALERT_TRIGGER_COUNT", "3")),
