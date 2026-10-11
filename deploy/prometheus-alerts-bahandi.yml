@@ -68,13 +68,15 @@ groups:
 
       - alert: GpuVramHigh
         expr: >
-          DCGM_FI_DEV_FB_USED / (DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE) >= 0.9
+          DCGM_FI_DEV_FB_USED / (DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE) >= 0.95
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "GPU {{ $labels.gpu }}: VRAM заполнена на 90%+"
-          description: "used/total >= 90% более 5 минут"
+          summary: "GPU {{ $labels.gpu }}: видеопамять (VRAM) заполнена на 95%+"
+          description: >-
+            Видеопамять GPU {{ $labels.gpu }} (не ОЗУ): занято {{ $value | humanizePercentage }}
+            более 5 минут. Занято/всего в МиБ смотрите по DCGM_FI_DEV_FB_USED / FB_FREE.
 
       - alert: GpuVramGhost
         expr: >
@@ -84,8 +86,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "GPU {{ $labels.gpu }}: залипшая VRAM"
-          description: "VRAM >= 80% при util ~0 более 10 минут — возможно зомби-процесс держит память"
+          summary: "GPU {{ $labels.gpu }}: залипшая видеопамять (VRAM)"
+          description: "Видеопамять GPU (не ОЗУ) >= 80% при util ~0 более 10 минут — возможно зомби-процесс держит память"
 
       - alert: GpuPowerThrottle
         expr: increase(DCGM_FI_DEV_POWER_VIOLATION[10m]) > 0
@@ -101,33 +103,36 @@ groups:
       - alert: DiskAlmostFull
         expr: >
           (node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"}
-           / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"}) * 100 < 15
+           / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"}) * 100 < 5
         for: 5m
         labels:
           severity: critical
         annotations:
           summary: "Диск почти заполнен"
-          description: "Свободно {{ $value | printf \"%.1f\" }}% < 15% более 5 минут"
+          description: "Свободно {{ $value | printf \"%.1f\" }}% < 5% более 5 минут"
 
       - alert: MemPressure
         expr: >
-          (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 10
+          (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 5
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Мало свободной памяти"
-          description: "MemAvailable {{ $value | printf \"%.1f\" }}% < 10% более 5 минут"
+          summary: "ОЗУ (RAM): мало свободной памяти"
+          description: >-
+            Оперативная память хоста (не GPU): свободно {{ $value | printf "%.1f" }}%
+            (< 5%) более 5 минут. Всего ОЗУ:
+            {{ with query "node_memory_MemTotal_bytes" }}{{ . | first | value | humanize1024 }}B{{ end }}
 
       - alert: CpuSaturation
         expr: >
-          100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+          100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 95
         for: 15m
         labels:
           severity: warning
         annotations:
           summary: "CPU перегружен"
-          description: "CPU > 90% более 15 минут"
+          description: "CPU > 95% более 15 минут"
 
   - name: bahandi-ml-pipeline
     rules:

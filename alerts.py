@@ -11,16 +11,16 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
-from metrics import ServerMetrics
+from metrics import ServerMetrics, format_bytes
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class Thresholds:
-    cpu_percent: Optional[float] = 85.0
-    memory_percent: Optional[float] = 90.0
-    disk_percent: Optional[float] = 90.0
+    cpu_percent: Optional[float] = 95.0
+    memory_percent: Optional[float] = 95.0
+    disk_percent: Optional[float] = 95.0
     swap_percent: Optional[float] = None
     load_per_core: Optional[float] = 2.0
     trigger_count: int = 3
@@ -49,6 +49,7 @@ class AlertEvent:
     event: str  # "fire" | "repeat" | "recover"
     since: Optional[str] = None
     peak_value: Optional[float] = None
+    detail: str = ""  # e.g. "12.3 GB / 31.2 GB" — absolute numbers behind the %
 
     def format_value(self, value: Optional[float] = None) -> str:
         target = self.value if value is None else value
@@ -69,11 +70,22 @@ def _now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
+def _details(metrics: ServerMetrics) -> dict[str, str]:
+    """Absolute figures to show next to a percentage, keyed by rule key."""
+    details: dict[str, str] = {}
+    if metrics.memory_used_bytes is not None and metrics.memory_total_bytes is not None:
+        details["memory"] = (
+            f"{format_bytes(metrics.memory_used_bytes)} / "
+            f"{format_bytes(metrics.memory_total_bytes)}"
+        )
+    return details
+
+
 def _rules(metrics: ServerMetrics, thresholds: Thresholds) -> list[tuple]:
     """(key, label, current value, threshold, unit) for every enabled rule."""
     return [
         ("cpu", "CPU", metrics.cpu_percent, thresholds.cpu_percent, "%"),
-        ("memory", "Память", metrics.memory_percent, thresholds.memory_percent, "%"),
+        ("memory", "Оперативная память (ОЗУ, не GPU)", metrics.memory_percent, thresholds.memory_percent, "%"),
         ("disk", "Диск", metrics.disk_percent, thresholds.disk_percent, "%"),
         ("swap", "Swap", metrics.swap_percent, thresholds.swap_percent, "%"),
         (
@@ -90,6 +102,7 @@ def evaluate(metrics: ServerMetrics, thresholds: Thresholds) -> list[AlertEvent]
     """Update alert state from a fresh collection and return events to notify."""
     events: list[AlertEvent] = []
     now = time.monotonic()
+    details = _details(metrics)
 
     for key, label, value, threshold, unit in _rules(metrics, thresholds):
         # A threshold of None/0 disables the rule; a missing value means the
@@ -109,7 +122,10 @@ def evaluate(metrics: ServerMetrics, thresholds: Thresholds) -> list[AlertEvent]
                 state.since = _now_utc()
                 state.last_notified = now
                 events.append(
-                    AlertEvent(key, label, value, threshold, unit, "fire", state.since)
+                    AlertEvent(
+                        key, label, value, threshold, unit, "fire", state.since,
+                        detail=details.get(key, ""),
+                    )
                 )
                 logger.warning("ALERT %s: %s >= %s", key, value, threshold)
             elif (
@@ -122,7 +138,7 @@ def evaluate(metrics: ServerMetrics, thresholds: Thresholds) -> list[AlertEvent]
                 events.append(
                     AlertEvent(
                         key, label, value, threshold, unit, "repeat", state.since,
-                        state.peak_value,
+                        state.peak_value, details.get(key, ""),
                     )
                 )
         else:
@@ -133,7 +149,7 @@ def evaluate(metrics: ServerMetrics, thresholds: Thresholds) -> list[AlertEvent]
                 events.append(
                     AlertEvent(
                         key, label, value, threshold, unit, "recover", state.since,
-                        state.peak_value,
+                        state.peak_value, details.get(key, ""),
                     )
                 )
                 logger.info("RESOLVED %s: %s < %s", key, value, threshold)

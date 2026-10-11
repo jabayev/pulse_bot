@@ -162,6 +162,7 @@ async def notify_camera_down(name: str, url: str, error: str) -> None:
 
 async def notify_alert(event) -> None:
     """Send a threshold alert (alerts.AlertEvent)."""
+    detail = f" — {event.detail}" if event.detail else ""
     if event.event == "recover":
         peak = (
             f"<b>Пик:</b> {event.format_value(event.peak_value)}\n"
@@ -172,7 +173,7 @@ async def notify_alert(event) -> None:
             f"✅ <b>Нагрузка в норме</b>\n"
             f"\n"
             f"<b>Показатель:</b> {escape(event.label)}\n"
-            f"<b>Значение:</b> {event.format_value()} (порог {event.format_threshold()})\n"
+            f"<b>Значение:</b> {event.format_value()} (порог {event.format_threshold()}){detail}\n"
             f"{peak}"
             f"<b>Началось:</b> {event.since or '—'}\n"
             f"<b>Время:</b> {_now_utc()}"
@@ -189,7 +190,7 @@ async def notify_alert(event) -> None:
             f"{title}\n"
             f"\n"
             f"<b>Показатель:</b> {escape(event.label)}\n"
-            f"<b>Значение:</b> {event.format_value()} (порог {event.format_threshold()})\n"
+            f"<b>Значение:</b> {event.format_value()} (порог {event.format_threshold()}){detail}\n"
             f"{since}"
             f"<b>Время:</b> {_now_utc()}"
         )

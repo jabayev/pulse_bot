@@ -40,7 +40,9 @@ async def _by_gpu(prom: PromClient, expr: str) -> dict[str, tuple[float, dict]]:
 
 
 async def collect_gpus(prom: PromClient) -> list[GpuStat]:
-    temp, util, fb_used, fb_free, power, pcie_gen, pcie_width = await asyncio.gather(
+    (
+        temp, util, fb_used, fb_free, power, pcie_gen, pcie_width, fb_reserved,
+    ) = await asyncio.gather(
         _by_gpu(prom, "DCGM_FI_DEV_GPU_TEMP"),
         _by_gpu(prom, "DCGM_FI_DEV_GPU_UTIL"),
         _by_gpu(prom, "DCGM_FI_DEV_FB_USED"),
@@ -48,6 +50,7 @@ async def collect_gpus(prom: PromClient) -> list[GpuStat]:
         _by_gpu(prom, "DCGM_FI_DEV_POWER_USAGE"),
         _by_gpu(prom, "DCGM_FI_DEV_PCIE_LINK_GEN"),
         _by_gpu(prom, "DCGM_FI_DEV_PCIE_LINK_WIDTH"),
+        _by_gpu(prom, "DCGM_FI_DEV_FB_RESERVED"),
         return_exceptions=True,
     )
 
@@ -58,6 +61,7 @@ async def collect_gpus(prom: PromClient) -> list[GpuStat]:
         safe(temp), safe(util), safe(fb_used), safe(fb_free), safe(power),
     )
     pcie_gen, pcie_width = safe(pcie_gen), safe(pcie_width)
+    fb_reserved = safe(fb_reserved)
 
     indices = sorted(
         set(temp) | set(util) | set(fb_used) | set(power),
@@ -74,7 +78,10 @@ async def collect_gpus(prom: PromClient) -> list[GpuStat]:
             if index in source:
                 setattr(stat, attr, source[index][0])
         if index in fb_used and index in fb_free:
-            stat.fb_total_mib = fb_used[index][0] + fb_free[index][0]
+            # nvidia-smi's total also includes the driver-reserved slice; without
+            # it the % is overstated vs what people see in nvidia-smi.
+            reserved = fb_reserved.get(index, (0.0, {}))[0]
+            stat.fb_total_mib = fb_used[index][0] + fb_free[index][0] + reserved
         labels = (temp.get(index) or util.get(index) or (None, {}))[1]
         stat.name = str(labels.get("modelName", labels.get("model_name", "")))
         gpus.append(stat)

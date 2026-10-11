@@ -32,6 +32,10 @@ class MetricsConfig:
     net_device_exclude: str = "lo|veth.*|docker.*|br-.*|virbr.*|tun.*"
     # Window for rate() in the Prometheus queries.
     rate_window: str = "5m"
+    # Extra node_exporter label matchers, e.g. `instance="10.0.0.5:9100"` or
+    # `job="node"`. Without it every node_exporter Prometheus scrapes is
+    # averaged together (dev box + prod box = a meaningless mean).
+    node_selector: str = ""
 
 
 @dataclass
@@ -122,39 +126,47 @@ def format_uptime(seconds: Optional[float]) -> str:
 def _build_queries(cfg: MetricsConfig) -> dict[str, str]:
     window = cfg.rate_window
     mount = cfg.disk_mountpoint
-    fs = f'{{mountpoint="{mount}",fstype!~"tmpfs|overlay|squashfs"}}'
-    net = f'{{device!~"{cfg.net_device_exclude}"}}'
+    sel = f",{cfg.node_selector}" if cfg.node_selector else ""
+    bare = f"{{{cfg.node_selector}}}" if cfg.node_selector else ""
+    fs = f'{{mountpoint="{mount}",fstype!~"tmpfs|overlay|squashfs"{sel}}}'
+    fs_free = f'{{mountpoint="{mount}",fstype!~"tmpfs|overlay|squashfs"{sel}}}'
+    net = f'{{device!~"{cfg.net_device_exclude}"{sel}}}'
+    idle = f'{{mode="idle"{sel}}}'
     return {
         "cpu_percent": (
-            f'100 - (avg(rate(node_cpu_seconds_total{{mode="idle"}}[{window}])) * 100)'
+            f'100 - (avg(rate(node_cpu_seconds_total{idle}[{window}])) * 100)'
         ),
-        "cpu_cores": "count(count by (cpu) (node_cpu_seconds_total))",
+        "cpu_cores": f"count(count by (cpu) (node_cpu_seconds_total{bare}))",
         "memory_percent": (
-            "100 * (1 - avg(node_memory_MemAvailable_bytes) "
-            "/ avg(node_memory_MemTotal_bytes))"
+            f"100 * (1 - avg(node_memory_MemAvailable_bytes{bare}) "
+            f"/ avg(node_memory_MemTotal_bytes{bare}))"
         ),
-        "memory_total_bytes": "avg(node_memory_MemTotal_bytes)",
+        "memory_total_bytes": f"avg(node_memory_MemTotal_bytes{bare})",
         "memory_used_bytes": (
-            "avg(node_memory_MemTotal_bytes) - avg(node_memory_MemAvailable_bytes)"
+            f"avg(node_memory_MemTotal_bytes{bare}) "
+            f"- avg(node_memory_MemAvailable_bytes{bare})"
         ),
         "swap_percent": (
-            "100 * (1 - avg(node_memory_SwapFree_bytes) "
-            "/ avg(node_memory_SwapTotal_bytes))"
+            f"100 * (1 - avg(node_memory_SwapFree_bytes{bare}) "
+            f"/ avg(node_memory_SwapTotal_bytes{bare}))"
         ),
         "disk_percent": (
-            f"100 * (1 - avg(node_filesystem_avail_bytes{fs}) "
-            f"/ avg(node_filesystem_size_bytes{fs}))"
+            # df-style: used / (used + avail). 1 - avail/size would count the
+            # root-reserved blocks (~5% on ext4) as used and overstate it.
+            f"100 * (avg(node_filesystem_size_bytes{fs}) - avg(node_filesystem_free_bytes{fs_free})) "
+            f"/ (avg(node_filesystem_size_bytes{fs}) - avg(node_filesystem_free_bytes{fs_free}) "
+            f"+ avg(node_filesystem_avail_bytes{fs}))"
         ),
         "disk_total_bytes": f"avg(node_filesystem_size_bytes{fs})",
         "disk_used_bytes": (
-            f"avg(node_filesystem_size_bytes{fs}) - avg(node_filesystem_avail_bytes{fs})"
+            f"avg(node_filesystem_size_bytes{fs}) - avg(node_filesystem_free_bytes{fs_free})"
         ),
-        "load1": "avg(node_load1)",
-        "load5": "avg(node_load5)",
-        "load15": "avg(node_load15)",
+        "load1": f"avg(node_load1{bare})",
+        "load5": f"avg(node_load5{bare})",
+        "load15": f"avg(node_load15{bare})",
         "net_rx_bytes_sec": f"sum(rate(node_network_receive_bytes_total{net}[{window}]))",
         "net_tx_bytes_sec": f"sum(rate(node_network_transmit_bytes_total{net}[{window}]))",
-        "uptime_seconds": "time() - avg(node_boot_time_seconds)",
+        "uptime_seconds": f"time() - avg(node_boot_time_seconds{bare})",
     }
 
 

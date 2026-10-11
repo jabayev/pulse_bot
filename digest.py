@@ -4,7 +4,7 @@ import logging
 from html import escape
 from typing import Optional
 
-from config import EXPECTED_GPU_COUNT
+from config import EXPECTED_GPU_COUNT, METRICS_CONFIG
 from containers import DockerClient
 from prom import PromClient, sample_name
 
@@ -140,13 +140,19 @@ async def build_digest(
         pass
 
     # Host headroom.
+    # Same host filter as the threshold alerts, otherwise several scraped
+    # node_exporters get mixed into one number.
+    sel = METRICS_CONFIG.node_selector
+    fs_sel = f",{sel}" if sel else ""
+    bare = f"{{{sel}}}" if sel else ""
     disk_free = await _scalar(
         prom,
-        'min(node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} '
-        '/ node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}) * 100',
+        f'min(node_filesystem_avail_bytes{{mountpoint="/",fstype!~"tmpfs|overlay"{fs_sel}}} '
+        f'/ node_filesystem_size_bytes{{mountpoint="/",fstype!~"tmpfs|overlay"{fs_sel}}}) * 100',
     )
     mem_avail = await _scalar(
-        prom, "avg(node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100"
+        prom,
+        f"avg(node_memory_MemAvailable_bytes{bare} / node_memory_MemTotal_bytes{bare}) * 100",
     )
     headroom = []
     if disk_free is not None:
