@@ -3,13 +3,19 @@ import logging
 from html import escape
 
 import aiohttp
-from telegram import BotCommand, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+)
 
 import alerts
 import am_webhook
 import ml_reports
+import charts
 from access import restricted
 from am_client import AlertmanagerClient, format_duration, parse_duration
 from camera_monitor import check_all_cameras, check_random_camera
@@ -23,6 +29,9 @@ from config import (
     CAMERAS,
     CAMERAS_NOTIFY_CHANGES,
     CAMERAS_REFRESH_INTERVAL,
+    CHARTS_DAILY_HOURS,
+    CHARTS_ENABLED,
+    CHARTS_TIMES,
     CHECK_INTERVAL,
     COMPOSE_PROJECT,
     DIGEST_ENABLED,
@@ -69,6 +78,7 @@ from notifier import (
     notify_up,
     now_local,
     now_local_str,
+    send_photo,
     send_text,
 )
 from prom import PromClient
@@ -100,6 +110,7 @@ webhook_server = am_webhook.WebhookServer() if WEBHOOK_ENABLED else None
 
 # Digest scheduler: (date, "HH:MM") already fired.
 _digest_sent: set[tuple[str, str]] = set()
+_charts_sent: set[tuple[str, str]] = set()
 
 
 # --- Jobs ------------------------------------------------------------------
@@ -223,6 +234,29 @@ async def _digest_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         logger.exception("Digest failed")
         await notify_error("Дайджест", f"{type(e).__name__}: {e}")
+
+
+async def _charts_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Daily chart report at the configured local times (checked every 30s)."""
+    now = now_local()
+    current = now.strftime("%H:%M")
+    if current not in CHARTS_TIMES:
+        return
+    key = (now.strftime("%Y-%m-%d"), current)
+    if key in _charts_sent:
+        return
+    _charts_sent.add(key)
+    if len(_charts_sent) > 100:
+        _charts_sent.clear()
+        _charts_sent.add(key)
+    try:
+        png, caption = await charts.build_chart(
+            prom, list(charts.PANEL_ORDER), CHARTS_DAILY_HOURS
+        )
+        await send_photo(png, caption, thread_id=TELEGRAM_STATS_THREAD_ID)
+    except Exception as e:
+        logger.exception("Daily charts failed")
+        await notify_error("Графики", f"{type(e).__name__}: {e}")
 
 
 async def _heartbeat_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -573,6 +607,75 @@ async def cmd_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
+# --- Commands: графики ------------------------------------------------------
+
+_CHART_WINDOWS = (6, 12, 24)
+
+
+def _charts_keyboard(hours: int) -> InlineKeyboardMarkup:
+    windows = [
+        InlineKeyboardButton(
+            f"{'✅ ' if h == hours else ''}{h} ч", callback_data=f"chw:{h}"
+        )
+        for h in _CHART_WINDOWS
+    ]
+    panels = [
+        InlineKeyboardButton(label, callback_data=f"ch:{key}:{hours}")
+        for label, key in charts.panel_buttons()
+    ]
+    rows = [
+        [InlineKeyboardButton("📊 Все графики", callback_data=f"ch:all:{hours}")],
+        panels[0:3],
+        panels[3:6],
+        windows,
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+@restricted(admin_only=False)
+async def cmd_charts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    hours = 24
+    if context.args and context.args[0].lower().rstrip("h").isdigit():
+        hours = min(int(context.args[0].lower().rstrip("h")), 72)
+    await update.message.reply_text(
+        f"<b>📈 Графики</b> · окно {hours} ч\nВыбери график:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=_charts_keyboard(hours),
+    )
+
+
+@restricted(admin_only=False)
+async def on_charts_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    parts = (query.data or "").split(":")
+    try:
+        if parts[0] == "chw":
+            hours = int(parts[1])
+            await query.answer()
+            await query.edit_message_text(
+                f"<b>📈 Графики</b> · окно {hours} ч\nВыбери график:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=_charts_keyboard(hours),
+            )
+            return
+        key, hours = parts[1], int(parts[2])
+    except (IndexError, ValueError):
+        await query.answer()
+        return
+
+    await query.answer("Рисую график...")
+    keys = list(charts.PANEL_ORDER) if key == "all" else [key]
+    try:
+        png, caption = await charts.build_chart(prom, keys, hours)
+    except Exception as e:
+        logger.exception("Chart failed")
+        await query.message.reply_text(f"⚠️ Не удалось построить график: {e}")
+        return
+    await query.message.reply_photo(
+        photo=png, caption=caption, parse_mode=ParseMode.HTML
+    )
+
+
 # --- Commands: существующий функционал -------------------------------------
 
 @restricted()
@@ -738,6 +841,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/gpus — температура, util, VRAM, power по GPU",
         "/containers — контейнеры prod-проекта",
         "/digest [12h|24h] — сводный дайджест",
+        "/charts [24h] — графики CPU/ОЗУ/GPU/VRAM/кадров по кнопкам",
         "",
         "<b>ML-пайплайн:</b>",
         "/cams — камеры online/offline, reconnects",
@@ -780,6 +884,7 @@ async def _post_init(app: Application) -> None:
             BotCommand("silence", "Заглушить алерт"),
             BotCommand("ack", "Взять алерт в работу"),
             BotCommand("digest", "Сводный дайджест"),
+            BotCommand("charts", "Графики нагрузки"),
             BotCommand("metrics", "Метрики хоста"),
             BotCommand("status_camera", "Проверить RTSP-камеры"),
             BotCommand("help", "Список команд"),
@@ -820,6 +925,8 @@ def main() -> None:
     app.add_handler(CommandHandler("silence", cmd_silence))
     app.add_handler(CommandHandler("ack", cmd_ack))
     app.add_handler(CommandHandler("digest", cmd_digest))
+    app.add_handler(CommandHandler("charts", cmd_charts))
+    app.add_handler(CallbackQueryHandler(on_charts_button, pattern=r"^ch[w]?:"))
     app.add_handler(CommandHandler("metrics", cmd_metrics))
     app.add_handler(CommandHandler("thresholds", cmd_thresholds))
     app.add_handler(CommandHandler("status_camera", cmd_status_camera))
@@ -858,6 +965,9 @@ def main() -> None:
 
     if DIGEST_ENABLED:
         app.job_queue.run_repeating(_digest_job, interval=30, first=30)
+
+    if CHARTS_ENABLED:
+        app.job_queue.run_repeating(_charts_job, interval=30, first=35)
 
     if HEARTBEAT_URL:
         app.job_queue.run_repeating(

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh -i * -p 2222 mluser@212.134.241.141 *)",
+      "Bash(scp -i * -P 2222 * mluser@212.134.241.141:*)"
+    ]
+  }
+}

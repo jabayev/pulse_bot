@@ -83,6 +83,41 @@ async def send_text(
     return False
 
 
+async def send_photo(
+    png: bytes,
+    caption: str = "",
+    thread_id: Optional[int] = None,
+    retries: int = 3,
+) -> bool:
+    """Send a PNG to the main chat (same retry policy as send_text)."""
+    if _bot is None:
+        logger.error("Bot not initialized — call init_bot() before sending photos")
+        return False
+
+    delay = 2.0
+    for attempt in range(1, retries + 1):
+        try:
+            await _bot.send_photo(
+                chat_id=TELEGRAM_CHAT_ID,
+                photo=png,
+                caption=caption[:1024],
+                parse_mode=ParseMode.HTML,
+                message_thread_id=thread_id,
+            )
+            return True
+        except RetryAfter as e:
+            await asyncio.sleep(float(e.retry_after) + 1)
+        except TelegramError as e:
+            logger.error("Telegram photo failed (attempt %d/%d): %s", attempt, retries, e)
+            if attempt < retries:
+                await asyncio.sleep(delay)
+                delay *= 2
+        except Exception:
+            logger.exception("Unexpected error while sending Telegram photo")
+            return False
+    return False
+
+
 async def _send(text: str) -> bool:
     return await send_text(text)
 

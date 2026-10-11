@@ -48,6 +48,36 @@ class PromClient:
             samples.append(Sample(labels=item.get("metric", {}), value=value))
         return samples
 
+    async def query_range(
+        self, expr: str, start: float, end: float, step: int
+    ) -> list[tuple[dict, list[tuple[float, float]]]]:
+        """Range query -> [(labels, [(unix_ts, value), ...]), ...]. NaN/Inf dropped."""
+        url = f"{self.base_url}/api/v1/query_range"
+        params = {"query": expr, "start": start, "end": end, "step": step}
+        timeout = aiohttp.ClientTimeout(total=max(self.timeout.total or 10, 30))
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, params=params) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(f"Prometheus HTTP {resp.status}")
+                payload = await resp.json(content_type=None)
+
+        if payload.get("status") != "success":
+            raise RuntimeError(payload.get("error") or "Prometheus вернул ошибку")
+
+        series = []
+        for item in payload.get("data", {}).get("result") or []:
+            points = []
+            for ts, raw in item.get("values") or []:
+                try:
+                    value = float(raw)
+                except (TypeError, ValueError):
+                    continue
+                if math.isnan(value) or math.isinf(value):
+                    continue
+                points.append((float(ts), value))
+            series.append((item.get("metric", {}), points))
+        return series
+
     async def scalar(self, expr: str):
         """First value of an instant query, or None when there is no data."""
         samples = await self.query(expr)

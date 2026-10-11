@@ -263,6 +263,15 @@ for _t in DIGEST_TIMES:
     if len(parts) != 2 or not all(p.isdigit() for p in parts):
         raise ValueError(f"DIGEST_TIMES: '{_t}' должно быть в формате HH:MM")
 
+# Графики: ежедневный отчёт в указанное локальное время (TZ_NAME) + /charts.
+CHARTS_ENABLED: bool = _parse_bool(os.getenv("CHARTS_ENABLED", "true"))
+CHARTS_TIMES: list[str] = _parse_str_list("CHARTS_TIMES", "22:00")
+CHARTS_DAILY_HOURS: float = float(os.getenv("CHARTS_DAILY_HOURS", "24"))
+for _t in CHARTS_TIMES:
+    parts = _t.split(":")
+    if len(parts) != 2 or not all(p.isdigit() for p in parts):
+        raise ValueError(f"CHARTS_TIMES: '{_t}' должно быть в формате HH:MM")
+
 # Optional external heartbeat (healthchecks.io etc.); empty — disabled.
 HEARTBEAT_URL: str = os.getenv("HEARTBEAT_URL", "").strip()
 HEARTBEAT_INTERVAL: int = int(os.getenv("HEARTBEAT_INTERVAL", "60"))
